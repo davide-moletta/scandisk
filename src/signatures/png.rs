@@ -2,7 +2,7 @@ use super::FileCarver;
 
 /// Default max size: 50 MB
 const PNG_DEFAULT_MAX_SIZE: usize = 50 * 1024 * 1024;
-const PNG_EXTENSION: &str = "png";
+pub const PNG_EXTENSION: &str = "png";
 /// PNG header and footer marks
 const PNG_HEADER: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 const PNG_FOOTER: &[u8] = &[0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82];
