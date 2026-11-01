@@ -1,3 +1,4 @@
+pub mod jpeg;
 pub mod png;
 
 /// Generic trait implemented for each file type

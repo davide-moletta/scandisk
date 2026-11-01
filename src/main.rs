@@ -1,6 +1,6 @@
 mod signatures;
 
-use signatures::{FileCarver, png};
+use signatures::{FileCarver, jpeg, png};
 
 use clap::{Parser, ValueEnum};
 use log::{error, info, warn};
@@ -13,7 +13,7 @@ use std::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FileType {
-    Jpg,
+    Jpeg,
     Pdf,
     Png,
     All,
@@ -27,7 +27,7 @@ impl FileType {
         if types.contains(&FileType::All) {
             return vec![
                 Box::new(png::PngCarver::default()),
-                // Only PNG for now
+                Box::new(jpeg::JpegCarver::default()),
             ];
         }
 
@@ -41,11 +41,13 @@ impl FileType {
                         carvers.push(Box::new(png::PngCarver::default()));
                     }
                 }
-                FileType::Jpg => {
-                    // Future implementation:
-                    // if !carvers.iter().any(|c| c.extension() == "jpg") {
-                    //     carvers.push(Box::new(JpgCarver::default()));
-                    // }
+                FileType::Jpeg => {
+                    if !carvers
+                        .iter()
+                        .any(|c| c.extension() == jpeg::JPEG_EXTENSION)
+                    {
+                        carvers.push(Box::new(jpeg::JpegCarver::default()));
+                    }
                 }
                 FileType::Pdf => {
                     // Future implementation:
