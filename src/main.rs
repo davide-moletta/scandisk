@@ -1,6 +1,6 @@
 mod signatures;
 
-use signatures::{FileCarver, jpeg, png};
+use signatures::{FileCarver, jpeg, pdf, png};
 
 use clap::{Parser, ValueEnum};
 use log::{error, info, warn};
@@ -28,6 +28,7 @@ impl FileType {
             return vec![
                 Box::new(png::PngCarver::default()),
                 Box::new(jpeg::JpegCarver::default()),
+                Box::new(pdf::PdfCarver::default()),
             ];
         }
 
@@ -50,10 +51,9 @@ impl FileType {
                     }
                 }
                 FileType::Pdf => {
-                    // Future implementation:
-                    // if !carvers.iter().any(|c| c.extension() == "pdf") {
-                    //     carvers.push(Box::new(PdfCarver::default()));
-                    // }
+                    if !carvers.iter().any(|c| c.extension() == pdf::PDF_EXTENSION) {
+                        carvers.push(Box::new(pdf::PdfCarver::default()));
+                    }
                 }
                 FileType::All => unreachable!(),
             }
