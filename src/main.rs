@@ -79,7 +79,7 @@ pub struct Args {
     pub output_dir: Option<PathBuf>,
 
     /// Target file types to scan for
-    #[arg(short, long, value_enum, default_value = "all")]
+    #[arg(short, long, value_enum, value_delimiter = ',', default_value = "all")]
     pub types: Vec<FileType>,
 }
 
