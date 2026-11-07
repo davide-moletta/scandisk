@@ -2,6 +2,7 @@ mod signatures;
 
 use signatures::{FileCarver, jpeg, pdf, png};
 
+use aho_corasick::{AhoCorasick, MatchKind};
 use clap::{Parser, ValueEnum};
 use log::{error, info, warn};
 use memmap2::MmapOptions;
@@ -152,68 +153,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Instantiate active carvers
     let carvers = FileType::build_carvers(&args.types);
+    if carvers.is_empty() {
+        warn!("No active carvers selected");
+        return Ok(());
+    }
+
     info!(
         "Active carvers: {:?}",
         carvers.iter().map(|c| c.extension()).collect::<Vec<_>>()
     );
 
-    // Scan loop
+    // Build Aho-Corasick multi-pattern search automaton
+    // Collect all headers in the exact same order as `carvers`
+    let patterns: Vec<&[u8]> = carvers.iter().map(|c| c.header()).collect();
+
+    let ac = AhoCorasick::builder()
+        .match_kind(MatchKind::LeftmostFirst)
+        .build(&patterns)?;
+
+    info!(
+        "Compiled search automaton for {} file types, beginning scan...",
+        patterns.len()
+    );
+
+    // Single-pass linear scan across the whole drive
     let mut files_found = 0;
+    let mut cursor = 0;
 
-    for carver in &carvers {
-        let header = carver.header();
-        info!("Scanning for .{} files...", carver.extension());
+    while cursor < mmap.len() {
+        // Find the next occurrence of any active header from cursor position
+        if let Some(mat) = ac.find(&mmap[cursor..]) {
+            let header_offset = cursor + mat.start();
+            let carver_idx = mat.pattern().as_usize();
+            let carver = &carvers[carver_idx];
 
-        let mut cursor = 0;
-        while cursor < mmap.len() {
-            // Find the next magic header starting from current cursor position
-            if let Some(found_idx) = memchr::memmem::find(&mmap[cursor..], header) {
-                let header_offset = cursor + found_idx;
-                let candidate_slice = &mmap[header_offset..];
+            let candidate_slice = &mmap[header_offset..];
 
-                // Attempt to resolve file boundary
-                if let Some(length) = carver.resolve_length(candidate_slice) {
-                    let end_offset = header_offset + length;
+            // Attempt to resolve file boundary
+            if let Some(length) = carver.resolve_length(candidate_slice) {
+                let end_offset = header_offset + length;
 
-                    // Bounds safety check (e.g. truncated file at the end of the disk)
-                    if end_offset > mmap.len() {
-                        warn!(
-                            "File at 0x{:08X} exceeds buffer bounds (len: {}), skipping",
-                            header_offset, length
-                        );
-                        cursor = header_offset + header.len();
-                        continue;
-                    }
-
-                    files_found += 1;
-                    let file_bytes = &mmap[header_offset..end_offset];
-
-                    info!(
-                        "Found valid {} at 0x{:08X} - 0x{:08X} ({} bytes)",
-                        carver.extension(),
-                        header_offset,
-                        end_offset,
-                        length
+                // Bounds safety check (e.g. truncated file at the end of the disk)
+                if end_offset > mmap.len() {
+                    warn!(
+                        "File at 0x{:08X} exceeds buffer bounds (len: {}), skipping",
+                        header_offset, length
                     );
-
-                    // Extract file if output directory is provided
-                    if let Some(ref out_dir) = args.output_dir {
-                        match extract_file(out_dir, carver.extension(), header_offset, file_bytes) {
-                            Ok(saved_path) => info!("Carved: {:?}", saved_path),
-                            Err(e) => error!("Failed to write 0x{:08X}: {}", header_offset, e),
-                        }
-                    }
-
-                    // Jump past the carved file so we don't scan its internal data
-                    cursor = end_offset;
-                } else {
-                    // Header match was a false positive, advance past this header
-                    cursor = header_offset + header.len();
+                    cursor = header_offset + 1;
+                    continue;
                 }
+
+                files_found += 1;
+                let file_bytes = &mmap[header_offset..end_offset];
+
+                info!(
+                    "Found valid {} at 0x{:08X} - 0x{:08X} ({} bytes)",
+                    carver.extension(),
+                    header_offset,
+                    end_offset,
+                    length
+                );
+
+                // Extract file if output directory is provided
+                if let Some(ref out_dir) = args.output_dir {
+                    match extract_file(out_dir, carver.extension(), header_offset, file_bytes) {
+                        Ok(saved_path) => info!("Carved: {:?}", saved_path),
+                        Err(e) => error!("Failed to write 0x{:08X}: {}", header_offset, e),
+                    }
+                }
+
+                // Skip scanning inside this file's payload
+                cursor = end_offset;
             } else {
-                // No more headers found in this pass
-                break;
+                // Header matched, but carver determined it's a false positive.
+                // Advance by 1 byte to catch any adjacent or overlapping headers.
+                cursor = header_offset + 1;
             }
+        } else {
+            // No more magic headers exist on the rest of the disk
+            break;
         }
     }
 
