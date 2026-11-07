@@ -64,13 +64,6 @@ impl FileType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum ReportFormat {
-    Text,
-    Json,
-    Csv,
-}
-
 #[derive(Parser, Debug)]
 #[command(
     name = "scandisk",
@@ -88,14 +81,6 @@ pub struct Args {
     /// Target file types to scan for
     #[arg(short, long, value_enum, default_value = "all")]
     pub types: Vec<FileType>,
-
-    /// Path to output a report
-    #[arg(short, long)]
-    pub report: Option<PathBuf>,
-
-    /// Format for the report
-    #[arg(long, value_enum, default_value_t = ReportFormat::Text)]
-    pub format: ReportFormat,
 }
 
 /// Writes carved file bytes directly to the output directory
