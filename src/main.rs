@@ -4,12 +4,15 @@ use signatures::{FileCarver, jpeg, pdf, png};
 
 use aho_corasick::{AhoCorasick, MatchKind};
 use clap::{Parser, ValueEnum};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif_log_bridge::LogWrapper;
 use log::{error, info, warn};
 use memmap2::MmapOptions;
 use std::{
     fs::{self, File},
     io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -99,7 +102,10 @@ fn extract_file(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::SimpleLogger::new().env().init().unwrap();
+    // Bridge SimpleLogger with Indicatif so log macros do not disrupt the progress bar
+    let logger = simple_logger::SimpleLogger::new().env();
+    let multi = MultiProgress::new();
+    LogWrapper::new(multi.clone(), logger).try_init().unwrap();
 
     let args = Args::parse();
 
@@ -156,18 +162,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .match_kind(MatchKind::LeftmostFirst)
         .build(&patterns)?;
 
-    info!(
-        "Compiled search automaton for {} file types, beginning scan...",
-        patterns.len()
+    // Setup real-time progress bar
+    let pb = multi.add(ProgressBar::new(total_bytes));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.green}] {percent:>3}% ({bytes}/{total_bytes}) | Found: {msg}")?
+            .tick_chars("/-\\|")
+            .progress_chars("=>-"),
     );
+    // Spins the slash every 80ms smoothly on a background thread
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb.set_message("0");
 
     // Single-pass linear scan across the whole drive
+    const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB chunk for smooth percentage updates
+    let max_header_len = carvers.iter().map(|c| c.header().len()).max().unwrap_or(1);
+
     let mut files_found = 0;
     let mut cursor = 0;
 
     while cursor < mmap.len() {
-        // Find the next occurrence of any active header from cursor position
-        if let Some(mat) = ac.find(&mmap[cursor..]) {
+        // Define a 4 MB search window
+        let window_end = (cursor + CHUNK_SIZE).min(mmap.len());
+        let window = &mmap[cursor..window_end];
+
+        if let Some(mat) = ac.find(window) {
             let header_offset = cursor + mat.start();
             let carver_idx = mat.pattern().as_usize();
             let carver = &carvers[carver_idx];
@@ -185,10 +204,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         header_offset, length
                     );
                     cursor = header_offset + 1;
+                    pb.set_position(cursor as u64);
                     continue;
                 }
 
                 files_found += 1;
+                pb.set_message(files_found.to_string());
+
                 let file_bytes = &mmap[header_offset..end_offset];
 
                 info!(
@@ -207,7 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-                // Skip scanning inside this file's payload
+                // Advance cursor past the carved file
                 cursor = end_offset;
             } else {
                 // Header matched, but carver determined it's a false positive.
@@ -215,11 +237,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cursor = header_offset + 1;
             }
         } else {
-            // No more magic headers exist on the rest of the disk
-            break;
+            // No matches in this 4 MB chunk
+            if window_end == mmap.len() {
+                cursor = mmap.len();
+            } else {
+                // Overlap by MAX_HEADER_LEN - 1 so headers across boundaries aren't missed
+                cursor = window_end.saturating_sub(max_header_len.saturating_sub(1));
+            }
         }
+
+        // Update progress bar position
+        pb.set_position(cursor as u64);
     }
 
+    pb.finish_with_message(files_found.to_string());
+    println!();
     info!("Scan complete, total files recovered: {}", files_found);
 
     Ok(())
