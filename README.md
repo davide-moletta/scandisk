@@ -2,43 +2,45 @@
 
 A Rust-based disk scanner to find and recover residues of deleted files from raw disk images and block devices.
 
-## Prerequisites
+## Installation & Prerequisites
 
-To build and run this project you need to install Rust.
+You can run `scandisk` either natively via Rust or inside a Docker container (no local Rust toolchain required).
 
-On Linux:
+### Option 1: Native Rust Installation
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+Install the Rust toolchain:
 
-On Windows go to the official [Rust website](https://rust-lang.org/tools/install/).
+* **Linux / macOS:**
 
-To verify the installation:
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+
+* **Windows:** Download the installer from the official [Rust website](https://rust-lang.org/tools/install/).
+
+Verify installation:
 
 ```bash
 rustc --version
 cargo --version
 ```
 
-## Building the Project
+### Option 2: Docker Installation
 
-You can compile the optimized release binary using the Makefile:
+If you don't have Rust installed, you can build the Docker container using `make`:
 
 ```bash
-make build
+make docker-build
 ```
-
-*(Or compile a debug build with `make debug`).*
 
 ## How to Run (Using the Makefile)
 
-A `Makefile` is provided to simplify running scans and extractions.
+A `Makefile` is provided to manage both native execution and Docker runs with zero configuration.
 
-> **Note on Permissions:** When targeting physical raw block devices (e.g. `/dev/sda`), run commands with `sudo`:  
-> `sudo make scan ...` or `sudo make carve ...`
+> **Note on Permissions:** When targeting raw physical block devices (e.g. `/dev/sda`), run the commands with `sudo`:  
+> `sudo make scan ...` or `sudo make docker-carve ...`
 
-### 1. Show Help
+### 1. Show Help Menu
 
 Print all available make targets and usage instructions:
 
@@ -46,41 +48,65 @@ Print all available make targets and usage instructions:
 make help
 ```
 
-### 2. Scan-Only Mode
+### 2. Native Execution (Requires Rust)
 
-Scan a target without extracting files (counts and logs discovered files):
+Compile the optimized binary first:
 
 ```bash
-# Scan a disk image for all supported file types
-# not specifying TYPE defaults to all
+make build
+```
+
+#### Scan-Only Mode
+
+Scan a target without extracting files (detects and logs file boundaries and totals):
+
+```bash
+# Scan a disk image file for all supported formats
 make scan TARGET=disk.img
 
-# Scan a physical drive with sudo for specific types
+# Scan a USB drive for specific file types
 sudo make scan TARGET=/dev/sda TYPE=png,jpeg
 ```
 
-### 3. Carve (Extract) Mode
+#### Carve (Extract) Mode
 
-Scan and extract discovered files into a specified directory:
+Scan and extract discovered files into a destination directory:
 
 ```bash
 # Carve all files from an image
-# not specifying TYPE defaults to all
-make carve TARGET=disk.img OUT=./carved
+make carve TARGET=disk.img OUT=./carved_files
 
-# Carve specific file types from a USB drive
-sudo make carve TARGET=/dev/sda OUT=./carved TYPE=png,jpeg
+# Carve specific file types from a physical drive
+sudo make carve TARGET=/dev/sda OUT=./carved_files TYPE=png,jpeg
 ```
 
-### 4. Shorthand Carve Commands
+#### Shorthand Carve Commands
 
-Convenience targets for quick single-format or complete extraction (one per supported file type plus `all`):
+Quick commands for specific file formats:
 
 ```bash
-sudo make carve-all  TARGET=/dev/sda OUT=./carved
-sudo make carve-png  TARGET=/dev/sda OUT=./carved
-sudo make carve-jpeg TARGET=/dev/sda OUT=./carved
-sudo make carve-pdf  TARGET=/dev/sda OUT=./carved
+sudo make carve-all  TARGET=/dev/sda OUT=./carved_all
+sudo make carve-png  TARGET=/dev/sda OUT=./carved_pngs
+sudo make carve-jpeg TARGET=/dev/sda OUT=./carved_jpegs
+sudo make carve-pdf  TARGET=/dev/sda OUT=./carved_pdfs
+```
+
+### 3. Docker Execution (No Local Rust Required)
+
+Docker targets automatically mount your current directory and hardware block devices, allowing you to use local paths directly.
+
+```bash
+# Build the Docker image
+make docker-build
+
+# Scan a disk image
+make docker-scan TARGET=disk.img
+
+# Carve specific file types from a disk image
+make docker-carve TARGET=disk.img OUT=./carved_files TYPE=png,jpeg
+
+# Carve from a physical USB stick (requires sudo)
+sudo make docker-carve TARGET=/dev/sda OUT=./carved_files
 ```
 
 ## Direct CLI Usage

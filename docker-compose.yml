@@ -1,0 +1,9 @@
+services:
+  scandisk:
+    build: .
+    image: scandisk:latest
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - .:/data
+    working_dir: /data
